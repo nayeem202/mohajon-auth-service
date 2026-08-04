@@ -1,0 +1,10 @@
+logging:
+  level:
+    com.authservice: DEBUG
+  access:
+    enabled: true
+    include-request-parameters: true
+
+app:
+  otp:
+    store: ${APP_OTP_STORE:memory}
