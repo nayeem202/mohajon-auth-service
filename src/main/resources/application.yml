@@ -25,6 +25,18 @@ spring:
   jackson:
     default-property-inclusion: non_null
 
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
 server:
   port: ${PORT:8080}
 
@@ -38,6 +50,14 @@ app:
     store: ${APP_OTP_STORE:memory}
     ttl: 5m
     max-attempts: 5
+  mail:
+    enabled: ${MAIL_ENABLED:false}
+    from: ${MAIL_FROM:}
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+
   google:
     client-id: ${GOOGLE_CLIENT_ID:}
   cors:
@@ -48,3 +68,6 @@ management:
     web:
       exposure:
         include: health,info
+  health:
+    mail:
+      enabled: false
