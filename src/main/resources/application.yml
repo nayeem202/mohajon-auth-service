@@ -59,7 +59,7 @@ app:
     password: ${SMTP_PASSWORD:}
 
   google:
-    client-id: ${GOOGLE_CLIENT_ID:}
+    client-id: ${GOOGLE_CLIENT_ID:273885941339-5eigr18p3tp5lt8h5ait4k2ae5oi6lbl.apps.googleusercontent.com}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
 

@@ -27,23 +27,30 @@ public class TokenService {
         Instant now = Instant.now();
         List<String> roles = user.roleNames().stream().sorted().toList();
         List<String> permissions = user.permissionNames().stream().sorted().toList();
+        String displayName = user.getDisplayName();
+        if (displayName == null || displayName.isBlank()) {
+            displayName = user.getEmail();
+        }
 
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer(properties.issuer())
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.accessTtl()))
                 .subject(user.getExternalId())
                 .claim("email", user.getEmail())
-                .claim("name", user.getDisplayName())
-                .claim("phone", user.getPhoneNumber())
+                .claim("name", displayName)
                 .claim("roles", roles)
-                .claim("permissions", permissions)
-                .build();
+                .claim("permissions", permissions);
+
+        // Google accounts may not have a phone number. JWT claims cannot be null.
+        if (user.getPhoneNumber() != null) {
+            claims.claim("phone", user.getPhoneNumber());
+        }
 
         return jwtEncoder.encode(
                 JwtEncoderParameters.from(
                         JwsHeader.with(MacAlgorithm.HS256).build(),
-                        claims))
+                        claims.build()))
                 .getTokenValue();
     }
 
