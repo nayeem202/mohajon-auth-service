@@ -1,4 +1,6 @@
 spring:
+  profiles:
+    active: local
   application:
     name: auth-service
 
@@ -50,6 +52,10 @@ app:
     store: ${APP_OTP_STORE:memory}
     ttl: 5m
     max-attempts: 5
+    cooldown: ${APP_OTP_COOLDOWN:30s}
+  security:
+    max-login-attempts: ${MAX_LOGIN_ATTEMPTS:5}
+    lockout-minutes: ${LOGIN_LOCKOUT_MINUTES:15}
   mail:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:}

@@ -28,11 +28,21 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN') or hasRole('OWNER')")
     public UserResponse getUser(@AuthenticationPrincipal Jwt jwt, @PathVariable String userId) {
         User current = requireUser(jwt);
+        User target = userRepository.findByExternalId(userId)
+                .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "No account was found for this user."));
         if (!current.getExternalId().equals(userId)
                 && !current.roleNames().contains("ADMIN")) {
             throw ApiException.forbidden("FORBIDDEN", "You cannot view this account.");
         }
-        return UserResponse.from(current, false);
+        return UserResponse.from(target, false);
+    }
+
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public java.util.List<UserResponse> listUsers() {
+        return userRepository.findAll().stream()
+                .map(user -> UserResponse.from(user, false))
+                .toList();
     }
 
     @DeleteMapping("/{userId}")

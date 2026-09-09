@@ -1,0 +1,3 @@
+-- Brute-force login lockout support
+ALTER TABLE users ADD COLUMN failed_attempts INT NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN locked_until   TIMESTAMP;

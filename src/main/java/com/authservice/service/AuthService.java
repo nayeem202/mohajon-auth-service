@@ -40,6 +40,8 @@ public class AuthService {
     private final NotificationService notificationService;
     private final JwtProperties jwtProperties;
     private final GoogleIdTokenVerifier googleIdTokenVerifier;
+    private final int maxLoginAttempts;
+    private final int lockoutMinutes;
 
     public AuthService(
             UserRepository userRepository,
@@ -51,7 +53,9 @@ public class AuthService {
             OtpService otpService,
             NotificationService notificationService,
             JwtProperties jwtProperties,
-            GoogleIdTokenVerifier googleIdTokenVerifier) {
+            GoogleIdTokenVerifier googleIdTokenVerifier,
+            @org.springframework.beans.factory.annotation.Value("${app.security.max-login-attempts:5}") int maxLoginAttempts,
+            @org.springframework.beans.factory.annotation.Value("${app.security.lockout-minutes:15}") int lockoutMinutes) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -62,6 +66,8 @@ public class AuthService {
         this.notificationService = notificationService;
         this.jwtProperties = jwtProperties;
         this.googleIdTokenVerifier = googleIdTokenVerifier;
+        this.maxLoginAttempts = maxLoginAttempts;
+        this.lockoutMinutes = lockoutMinutes;
     }
 
     @Transactional
@@ -126,16 +132,48 @@ public class AuthService {
         String email = normalizeEmail(request.email());
         User user = findByEmail(email);
         if (!user.isActive()) {
-            throw ApiException.forbidden("ACCOUNT_DISABLED", "This account has been disabled.");
+            throw ApiException.forbidden("ACCOUNT_DISABLED",
+                    "This account is inactive. Contact your shop owner to reactivate it.");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
+            throw ApiException.tooManyRequests("ACCOUNT_LOCKED",
+                    "Too many failed attempts. Try again in a few minutes.");
         }
         if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            registerLoginFailure(user);
             throw ApiException.unauthorized("INVALID_CREDENTIALS", "The email or password is incorrect.");
         }
         if (!user.isEmailVerified()) {
-            sendVerificationCode(email);
-            throw ApiException.forbidden("VERIFICATION_REQUIRED", "Please verify your email first. A fresh code was sent.");
+            // Only send a fresh code when none is currently pending, so cooldown
+            // does not turn into an error for the user who just registered.
+            if (!otpService.exists(otpKeyEmail(email))) {
+                sendVerificationCode(email);
+            }
+            throw ApiException.forbidden("VERIFICATION_REQUIRED", "Please verify your email to sign in.");
         }
+        resetLoginFailures(user);
         return completeLogin(user, request.deviceId(), request.deviceName(), ipAddress);
+    }
+
+    private void registerLoginFailure(User user) {
+        int attempts = user.getFailedAttempts() + 1;
+        user.setFailedAttempts(attempts);
+        if (attempts >= maxLoginAttempts) {
+            user.setLockedUntil(LocalDateTime.now().plusMinutes(lockoutMinutes));
+            user.setFailedAttempts(0);
+        }
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
+    }
+
+    private void resetLoginFailures(User user) {
+        if (user.getFailedAttempts() != 0 || user.getLockedUntil() != null) {
+            user.setFailedAttempts(0);
+            user.setLockedUntil(null);
+            user.setUpdatedAt(LocalDateTime.now());
+            userRepository.save(user);
+        }
     }
 
     @Transactional
@@ -143,7 +181,12 @@ public class AuthService {
         RefreshToken stored = refreshTokenRepository.findByTokenHash(hash(request.refreshToken()))
                 .orElseThrow(() -> ApiException.unauthorized("INVALID_REFRESH_TOKEN", "The refresh token is invalid."));
 
-        if (stored.isRevoked() || stored.getExpiresAt().isBefore(LocalDateTime.now())) {
+        if (stored.isRevoked()) {
+            // A revoke/rotated token was replayed — likely compromise. Revoke the whole family.
+            refreshTokenRepository.revokeAllForUser(stored.getUser().getId());
+            throw ApiException.unauthorized("INVALID_REFRESH_TOKEN", "The refresh token is invalid. Sign in again.");
+        }
+        if (stored.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw ApiException.unauthorized("INVALID_REFRESH_TOKEN", "The refresh token has expired. Sign in again.");
         }
 
