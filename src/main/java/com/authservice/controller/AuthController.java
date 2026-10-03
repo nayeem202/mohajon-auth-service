@@ -83,6 +83,11 @@ public class AuthController {
         return authService.googleLogin(request, clientIp(http));
     }
 
+    @PostMapping("/facebook")
+    public TokenResponse facebookLogin(@Valid @RequestBody FacebookLoginRequest request, HttpServletRequest http) {
+        return authService.facebookLogin(request, clientIp(http));
+    }
+
     @PostMapping("/logout-all")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logoutAll(@AuthenticationPrincipal Jwt jwt) {

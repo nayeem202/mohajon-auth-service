@@ -44,6 +44,9 @@ public class User {
     @Column(name = "google_sub")
     private String googleSub;
 
+    @Column(name = "facebook_sub")
+    private String facebookSub;
+
     @Column(nullable = false)
     private String status;
 
@@ -106,6 +109,8 @@ public class User {
     public void setProvider(String provider) { this.provider = provider; }
     public String getGoogleSub() { return googleSub; }
     public void setGoogleSub(String googleSub) { this.googleSub = googleSub; }
+    public String getFacebookSub() { return facebookSub; }
+    public void setFacebookSub(String facebookSub) { this.facebookSub = facebookSub; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }

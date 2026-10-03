@@ -40,6 +40,7 @@ public class AuthService {
     private final NotificationService notificationService;
     private final JwtProperties jwtProperties;
     private final GoogleIdTokenVerifier googleIdTokenVerifier;
+    private final FacebookTokenVerifier facebookTokenVerifier;
     private final int maxLoginAttempts;
     private final int lockoutMinutes;
 
@@ -54,6 +55,7 @@ public class AuthService {
             NotificationService notificationService,
             JwtProperties jwtProperties,
             GoogleIdTokenVerifier googleIdTokenVerifier,
+            FacebookTokenVerifier facebookTokenVerifier,
             @org.springframework.beans.factory.annotation.Value("${app.security.max-login-attempts:5}") int maxLoginAttempts,
             @org.springframework.beans.factory.annotation.Value("${app.security.lockout-minutes:15}") int lockoutMinutes) {
         this.userRepository = userRepository;
@@ -66,6 +68,7 @@ public class AuthService {
         this.notificationService = notificationService;
         this.jwtProperties = jwtProperties;
         this.googleIdTokenVerifier = googleIdTokenVerifier;
+        this.facebookTokenVerifier = facebookTokenVerifier;
         this.maxLoginAttempts = maxLoginAttempts;
         this.lockoutMinutes = lockoutMinutes;
     }
@@ -321,6 +324,53 @@ public class AuthService {
             user.setGoogleSub(google.googleSub());
             user.setEmailVerified(true);
             user.setProvider("google");
+            user.setUpdatedAt(LocalDateTime.now());
+            userRepository.save(user);
+        }
+        return issueTokens(user, request.deviceId(), request.deviceName(), ipAddress, isNew);
+    }
+
+    @Transactional
+    public TokenResponse facebookLogin(FacebookLoginRequest request, String ipAddress) {
+        FacebookTokenVerifier.VerifiedFacebookUser facebook =
+                facebookTokenVerifier.verify(request.accessToken());
+        String email = normalizeEmail(facebook.email());
+
+        User user = userRepository.findByFacebookSub(facebook.facebookSub()).orElse(null);
+        if (user == null) {
+            user = userRepository.findByEmail(email).orElse(null);
+        }
+
+        boolean isNew = false;
+        if (user == null) {
+            user = new User();
+            user.setExternalId(UUID.randomUUID().toString());
+            user.setEmail(email);
+            user.setFacebookSub(facebook.facebookSub());
+            user.setDisplayName(facebook.name() == null || facebook.name().isBlank() ? email : facebook.name());
+            user.setPhotoUrl(facebook.pictureUrl());
+            user.setProvider("facebook");
+            user.setStatus("ACTIVE");
+            // Facebook only hands over an address it has already confirmed, so
+            // unlike a plain email signup there is nothing left to verify.
+            user.setEmailVerified(true);
+            LocalDateTime now = LocalDateTime.now();
+            user.setCreatedAt(now);
+            user.setUpdatedAt(now);
+            user.getRoles().add(requireRole(ROLE_OWNER));
+            userRepository.save(user);
+            isNew = true;
+        } else {
+            user.setFacebookSub(facebook.facebookSub());
+            if (!user.isEmailVerified()) {
+                user.setEmailVerified(true);
+            }
+            // A password account that later signs in with Facebook keeps its
+            // password: overwriting the provider would lock the owner out of
+            // the email login they may still be using.
+            if (!"local".equals(user.getProvider())) {
+                user.setProvider("facebook");
+            }
             user.setUpdatedAt(LocalDateTime.now());
             userRepository.save(user);
         }
