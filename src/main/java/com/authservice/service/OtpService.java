@@ -5,10 +5,12 @@ import com.authservice.exception.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
+import java.util.HexFormat;
 import java.util.Optional;
 
 @Service
@@ -32,6 +34,10 @@ public class OtpService {
     }
 
     public String generateAndStore(String key) {
+        return generateAndStore(key, ttl);
+    }
+
+    public String generateAndStore(String key, Duration lifetime) {
         readEntry(key).ifPresent(entry -> {
             long remaining = entry.sentAt() + cooldown.toMillis() - System.currentTimeMillis();
             if (cooldown.toMillis() > 0 && remaining > 0) {
@@ -41,7 +47,7 @@ public class OtpService {
             }
         });
         String code = String.format("%06d", random.nextInt(1_000_000));
-        otpCodeStore.save(key, code + "|0|" + System.currentTimeMillis(), ttl);
+        otpCodeStore.save(key, hash(code) + "|0|" + System.currentTimeMillis(), lifetime);
         return code;
     }
 
@@ -52,7 +58,7 @@ public class OtpService {
     public void verify(String key, String code) {
         Entry entry = readEntry(key)
                 .orElseThrow(() -> ApiException.badRequest("INVALID_OTP", "The code is invalid or has expired."));
-        if (!constantTimeEquals(code, entry.code())) {
+        if (!constantTimeEquals(hash(code), entry.code())) {
             int attempts = entry.attempts() + 1;
             if (attempts >= maxAttempts) {
                 otpCodeStore.delete(key);
@@ -86,6 +92,15 @@ public class OtpService {
         return MessageDigest.isEqual(
                 a.getBytes(StandardCharsets.UTF_8),
                 b.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String hash(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     private record Entry(String code, int attempts, long sentAt) {}

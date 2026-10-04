@@ -43,6 +43,8 @@ server:
   port: ${PORT:8080}
 
 app:
+  # Public origin used only for generic email verification links.
+  base-url: ${APP_BASE_URL:http://localhost:8080}
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-change-me-in-production-0123456789}
     issuer: ${JWT_ISSUER:http://localhost:8080}
@@ -50,7 +52,9 @@ app:
     refresh-ttl: 30d
   otp:
     store: ${APP_OTP_STORE:memory}
-    ttl: 5m
+    # Short-lived codes are intentionally limited to three minutes. The
+    # verification/link flows have their own token lifetime below.
+    ttl: ${APP_OTP_TTL:3m}
     max-attempts: 5
     cooldown: ${APP_OTP_COOLDOWN:30s}
   security:
@@ -59,6 +63,8 @@ app:
   mail:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:}
+    brand-name: ${MAIL_BRAND_NAME:Mohajon}
+    support-email: ${MAIL_SUPPORT_EMAIL:support@mohajon.app}
     host: ${SMTP_HOST:smtp.gmail.com}
     port: ${SMTP_PORT:587}
     username: ${SMTP_USERNAME:}

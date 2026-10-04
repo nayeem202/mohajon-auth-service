@@ -37,12 +37,16 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final OtpService otpService;
+    private final VerificationLinkService verificationLinkService;
     private final NotificationService notificationService;
     private final JwtProperties jwtProperties;
     private final GoogleIdTokenVerifier googleIdTokenVerifier;
     private final FacebookTokenVerifier facebookTokenVerifier;
     private final int maxLoginAttempts;
     private final int lockoutMinutes;
+    private final String baseUrl;
+    private final String mailBrandName;
+    private final String supportEmail;
 
     public AuthService(
             UserRepository userRepository,
@@ -57,7 +61,11 @@ public class AuthService {
             GoogleIdTokenVerifier googleIdTokenVerifier,
             FacebookTokenVerifier facebookTokenVerifier,
             @org.springframework.beans.factory.annotation.Value("${app.security.max-login-attempts:5}") int maxLoginAttempts,
-            @org.springframework.beans.factory.annotation.Value("${app.security.lockout-minutes:15}") int lockoutMinutes) {
+            @org.springframework.beans.factory.annotation.Value("${app.security.lockout-minutes:15}") int lockoutMinutes,
+            @org.springframework.beans.factory.annotation.Value("${app.base-url:http://localhost:8080}") String baseUrl,
+            VerificationLinkService verificationLinkService,
+            @org.springframework.beans.factory.annotation.Value("${app.mail.brand-name:Mohajon}") String mailBrandName,
+            @org.springframework.beans.factory.annotation.Value("${app.mail.support-email:support@mohajon.app}") String supportEmail) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -71,6 +79,10 @@ public class AuthService {
         this.facebookTokenVerifier = facebookTokenVerifier;
         this.maxLoginAttempts = maxLoginAttempts;
         this.lockoutMinutes = lockoutMinutes;
+        this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.verificationLinkService = verificationLinkService;
+        this.mailBrandName = mailBrandName;
+        this.supportEmail = supportEmail;
     }
 
     @Transactional
@@ -113,6 +125,16 @@ public class AuthService {
         String email = normalizeEmail(request.email());
         User user = findByEmail(email);
         otpService.verify(otpKeyEmail(email), request.code());
+        user.setEmailVerified(true);
+        user.setUpdatedAt(LocalDateTime.now());
+        userRepository.save(user);
+        return new MessageResponse("Email verified. You can now sign in.");
+    }
+
+    @Transactional
+    public MessageResponse verifyEmailLink(String token) {
+        String email = normalizeEmail(verificationLinkService.consume(token));
+        User user = findByEmail(email);
         user.setEmailVerified(true);
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
@@ -260,6 +282,34 @@ public class AuthService {
         String code = otpService.generateAndStore(otpKeyPhone(phone));
         notificationService.sendSms(phone, "Your verification code is: " + code);
         return new MessageResponse("A verification code was sent to your phone.");
+    }
+
+    @Transactional
+    public MessageResponse startPhoneRecovery(PhoneRecoveryRequest request) {
+        String phone = request.phone().trim();
+        userRepository.findByPhoneNumber(phone)
+                .filter(user -> user.getEmail() != null && !user.getEmail().isBlank())
+                .ifPresent(user -> {
+                    String code = otpService.generateAndStore(otpKeyPhoneRecovery(phone));
+                    notificationService.sendSms(phone, "Your account recovery code is: " + code);
+                });
+        return new MessageResponse("If an account is eligible, a recovery code was sent to that phone.");
+    }
+
+    @Transactional
+    public MessageResponse verifyPhoneRecovery(PhoneRecoveryVerifyRequest request) {
+        String phone = request.phone().trim();
+        otpService.verify(otpKeyPhoneRecovery(phone), request.code());
+        User user = userRepository.findByPhoneNumber(phone)
+                .orElseThrow(() -> ApiException.badRequest("INVALID_RECOVERY", "The recovery request is invalid."));
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
+            throw ApiException.badRequest("NO_RECOVERY_EMAIL", "No recovery email is linked to this account.");
+        }
+        String email = normalizeEmail(user.getEmail());
+        String resetCode = otpService.generateAndStore(otpKeyPasswordReset(email));
+        notificationService.sendEmail(email, "Password reset code",
+                "Your password reset code is: " + resetCode);
+        return new MessageResponse("A password reset code was sent to the account email.");
     }
 
     @Transactional
@@ -426,8 +476,63 @@ public class AuthService {
 
     private void sendVerificationCode(String email) {
         String code = otpService.generateAndStore(otpKeyEmail(email));
-        notificationService.sendEmail(email, "Verify your email",
-                "Your verification code is: " + code);
+        String linkToken = verificationLinkService.issue(email);
+        String link = baseUrl + "/api/v1/auth/verify-email-link?token=" + linkToken;
+        notificationService.sendEmail(email, "Verify your " + mailBrandName + " account",
+                verificationEmail(email, code, link));
+    }
+
+    private String verificationEmail(String email, String code, String link) {
+        return """
+                <!doctype html>
+                <html lang="en">
+                <head>
+                  <meta charset="utf-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                  <title>Verify your %s account</title>
+                </head>
+                <body style="margin:0;background:#f5f7f6;color:#17211d;font-family:Arial,Helvetica,sans-serif;">
+                  <div style="padding:32px 12px;">
+                    <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 8px 28px rgba(20,45,35,.08);">
+                      <tr>
+                        <td style="height:7px;background:#d9a514;font-size:0;line-height:0;">&nbsp;</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:30px 34px 10px;">
+                          <div style="font-size:25px;font-weight:700;letter-spacing:-.4px;color:#173d2b;">%s</div>
+                          <div style="margin-top:7px;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#9a7410;">Account security</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:14px 34px 34px;">
+                          <h1 style="margin:0 0 14px;font-size:25px;line-height:1.25;color:#17211d;">Verify your email address</h1>
+                          <p style="margin:0 0 22px;font-size:15px;line-height:1.7;color:#52615a;">Thanks for creating a %s account. Please verify <strong style="color:#273a31;">%s</strong> to finish setting up your account.</p>
+                          <div style="margin:0 0 22px;padding:20px;text-align:center;background:#fbf8ed;border:1px solid #eadcae;border-radius:14px;">
+                            <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8a6a13;">Your verification code is:</div>
+                            <div style="margin-top:9px;font-size:32px;line-height:1.1;font-weight:800;letter-spacing:8px;color:#173d2b;">%s</div>
+                            <div style="margin-top:10px;font-size:12px;color:#7a837e;">This code expires in 3 minutes.</div>
+                          </div>
+                          <div style="text-align:center;">
+                            <a href="%s" style="display:inline-block;padding:13px 24px;background:#173d2b;color:#ffffff;text-decoration:none;border-radius:10px;font-size:14px;font-weight:700;">Verify email securely</a>
+                          </div>
+                          <p style="margin:22px 0 0;font-size:13px;line-height:1.6;color:#68756f;">You can also use the button above. This secure verification link expires in 24 hours and can be used only once.</p>
+                          <div style="margin-top:24px;padding:15px 16px;border-left:3px solid #d9a514;background:#f8faf9;color:#596861;font-size:12px;line-height:1.65;">
+                            <strong style="color:#2f4038;">Security note:</strong> If you did not create this account, you can safely ignore this email. Never share your verification code with anyone.
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:20px 34px;background:#f8faf9;border-top:1px solid #edf1ee;color:#75817b;font-size:12px;line-height:1.6;">
+                          Need help? Contact <a href="mailto:%s" style="color:#496f5a;text-decoration:none;">%s</a>.<br>
+                          This is an automated security email from %s. Please do not reply.
+                        </td>
+                      </tr>
+                    </table>
+                  </div>
+                </body>
+                </html>
+                """.formatted(mailBrandName, mailBrandName, mailBrandName, email, code, link,
+                supportEmail, supportEmail, mailBrandName);
     }
 
     private User findByEmail(String email) {
@@ -454,6 +559,10 @@ public class AuthService {
 
     private static String otpKeyPasswordReset(String email) {
         return "reset:" + email;
+    }
+
+    private static String otpKeyPhoneRecovery(String phone) {
+        return "phone-recovery:" + phone;
     }
 
     private static String hash(String value) {

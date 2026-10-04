@@ -30,6 +30,11 @@ public class AuthController {
         return authService.verifyEmail(request);
     }
 
+    @GetMapping("/verify-email-link")
+    public MessageResponse verifyEmailLink(@RequestParam String token) {
+        return authService.verifyEmailLink(token);
+    }
+
     @PostMapping("/resend-verification")
     public MessageResponse resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
         return authService.resendVerification(request);
@@ -76,6 +81,16 @@ public class AuthController {
     @PostMapping("/verify-otp")
     public TokenResponse verifyOtp(@Valid @RequestBody VerifyOtpRequest request, HttpServletRequest http) {
         return authService.verifyOtp(request, clientIp(http));
+    }
+
+    @PostMapping("/phone-recovery/start")
+    public MessageResponse startPhoneRecovery(@Valid @RequestBody PhoneRecoveryRequest request) {
+        return authService.startPhoneRecovery(request);
+    }
+
+    @PostMapping("/phone-recovery/verify")
+    public MessageResponse verifyPhoneRecovery(@Valid @RequestBody PhoneRecoveryVerifyRequest request) {
+        return authService.verifyPhoneRecovery(request);
     }
 
     @PostMapping("/google")

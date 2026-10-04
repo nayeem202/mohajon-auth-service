@@ -4,6 +4,9 @@ import com.authservice.config.NotificationService;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 @TestConfiguration
 public class TestNotificationConfig {
 
@@ -23,10 +26,9 @@ public class TestNotificationConfig {
             }
 
             private String extractCode(String body) {
-                String marker = "code is: ";
-                int idx = body.indexOf(marker);
-                if (idx < 0) return null;
-                return body.substring(idx + marker.length()).trim();
+                Matcher matcher = Pattern.compile("(?i)code is:\\s*(?:<[^>]+>\\s*)*([0-9]{6})")
+                        .matcher(body);
+                return matcher.find() ? matcher.group(1) : null;
             }
         };
     }
