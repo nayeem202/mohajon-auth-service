@@ -148,6 +148,13 @@ public class AuthService {
         if (user.isEmailVerified()) {
             return new MessageResponse("Email is already verified.");
         }
+        // A verification code remains the single active credential for its
+        // whole input window. Resending is allowed only after that code has
+        // expired, never merely after a UI cooldown.
+        if (otpService.exists(otpKeyEmail(email))) {
+            throw ApiException.tooManyRequests("VERIFICATION_CODE_ACTIVE",
+                    "Your current verification code is still active. Please wait for it to expire.");
+        }
         sendVerificationCode(email);
         return new MessageResponse("A fresh verification code was sent to your email.");
     }

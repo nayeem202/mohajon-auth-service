@@ -139,4 +139,33 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
     }
+
+    @Test
+    void verificationLinkRendersHumanFriendlyActivatedAndExpiredPages() throws Exception {
+        String email = "link-owner@example.com";
+        mvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Link Owner","email":"%s","phone":"+8801700000001","password":"secret123"}
+                                """.formatted(email)))
+                .andExpect(status().isCreated());
+
+        String link = TestNotificationConfig.lastVerificationLink;
+        assertThat(link).isNotBlank();
+        String token = link.substring(link.indexOf("token=") + "token=".length());
+
+        mvc.perform(get("/api/v1/auth/verify-email-link").param("token", token))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("Account activated")));
+
+        mvc.perform(get("/api/v1/auth/verify-email-link").param("token", token))
+                .andExpect(status().isGone())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("Verification link unavailable")));
+    }
 }

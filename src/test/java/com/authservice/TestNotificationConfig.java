@@ -11,6 +11,7 @@ import java.util.regex.Pattern;
 public class TestNotificationConfig {
 
     public static volatile String lastEmailCode;
+    public static volatile String lastVerificationLink;
 
     @Bean
     NotificationService testNotificationService() {
@@ -18,6 +19,7 @@ public class TestNotificationConfig {
             @Override
             public void sendEmail(String to, String subject, String body) {
                 lastEmailCode = extractCode(body);
+                lastVerificationLink = extractVerificationLink(body);
             }
 
             @Override
@@ -27,6 +29,12 @@ public class TestNotificationConfig {
 
             private String extractCode(String body) {
                 Matcher matcher = Pattern.compile("(?i)code is:\\s*(?:<[^>]+>\\s*)*([0-9]{6})")
+                        .matcher(body);
+                return matcher.find() ? matcher.group(1) : null;
+            }
+
+            private String extractVerificationLink(String body) {
+                Matcher matcher = Pattern.compile("href=\\\"([^\\\"]*/verify-email-link\\?token=[^\\\"]+)\\\"")
                         .matcher(body);
                 return matcher.find() ? matcher.group(1) : null;
             }
