@@ -210,12 +210,13 @@ public class AuthService {
 
     @Transactional
     public TokenResponse refresh(RefreshRequest request) {
-        RefreshToken stored = refreshTokenRepository.findByTokenHash(hash(request.refreshToken()))
+        RefreshToken stored = refreshTokenRepository.findByTokenHashForUpdate(hash(request.refreshToken()))
                 .orElseThrow(() -> ApiException.unauthorized("INVALID_REFRESH_TOKEN", "The refresh token is invalid."));
 
         if (stored.isRevoked()) {
-            // A revoke/rotated token was replayed — likely compromise. Revoke the whole family.
-            refreshTokenRepository.revokeAllForUser(stored.getUser().getId());
+            // This token may have been replayed, but revoking every device's
+            // session for the user turns a harmless refresh race on one device
+            // into a global logout. Reject only this already-spent token.
             throw ApiException.unauthorized("INVALID_REFRESH_TOKEN", "The refresh token is invalid. Sign in again.");
         }
         if (stored.getExpiresAt().isBefore(LocalDateTime.now())) {

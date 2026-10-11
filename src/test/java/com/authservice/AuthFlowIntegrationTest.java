@@ -111,6 +111,14 @@ class AuthFlowIntegrationTest {
                                 """.formatted(refreshToken)))
                 .andExpect(status().isUnauthorized());
 
+        // Replaying the spent token must not invalidate the rotated session.
+        mvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"refreshToken":"%s"}
+                                """.formatted(refreshed.get("refreshToken").asText())))
+                .andExpect(status().isOk());
+
         // 9. Change password
         mvc.perform(post("/api/v1/auth/change-password")
                         .header("Authorization", "Bearer " + accessToken)
