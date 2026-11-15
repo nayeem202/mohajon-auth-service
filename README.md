@@ -1,94 +1,106 @@
-# Auth Service
+# Mohajon Auth Service
 
-Generic, self-hosted authentication service built with Spring Boot 4 + Spring
-Authorization Server. Provides email/password registration, email-verification
-codes, JWT access + refresh tokens (rotation), OTP, Google sign-in
-(ID-token verification), and role/permission-based authorization.
+The authentication and authorization service for **Mohajon**, a smart
+shop-management platform for Bangladeshi small businesses. It is deliberately
+domain-agnostic, so the mobile app, admin portal, and future clients can share
+a single secure identity layer.
 
-Fully plug-and-play: no domain-specific data lives here. Any client app
-(mobile, web, desktop) can integrate with it via the REST API or OAuth 2.1.
+## Responsibilities
 
-## Tech stack
+- Email/password registration and email verification
+- JWT access tokens with refresh-token rotation and session management
+- Password recovery, password changes, OTP, and login tracking
+- Google and Facebook sign-in token verification
+- OAuth 2.1 / OpenID Connect authorization-server support with PKCE
+- Role- and permission-based access control
 
-- Java 25 (Temurin), Gradle (Kotlin DSL), Spring Boot 4.1.0
-- Spring Security 7 + Spring Authorization Server 7.1.0
-- PostgreSQL 18 (via Docker Compose), Flyway migrations
-- Redis 8 (OTP store; falls back to in-memory store when unavailable)
-- Jackson 3 (`tools.jackson.databind`)
+## Technology
+
+| Area | Choice |
+|---|---|
+| Language & build | Java 25, Gradle |
+| Framework | Spring Boot 4.1, Spring Security 7, Spring Authorization Server |
+| Data | PostgreSQL 18, JPA, Flyway |
+| OTP cache | Redis 8, with an in-memory development fallback |
+| Operations | Spring Boot Actuator, Docker Compose |
+
+## How it fits into Mohajon
+
+```text
+Mohajon Mobile App ─┐
+                    ├──> Mohajon Auth Service :8080 ──> signed JWT
+Mohajon Admin Portal ┘                                  │
+                                                       └──> Mohajon Core Service :8081
+```
+
+The core service validates trusted JWTs issued here; clients should never
+store or expose the signing secret.
 
 ## Run locally
 
-```bash
-docker compose up -d          # postgres + redis
-cp .env.example .env          # adjust secrets if needed
+### Prerequisites
 
-export JAVA_HOME=~/devtools/jdk-25.0.4+7        # JDK 25
-export PATH=$JAVA_HOME/bin:$HOME/devtools/gradle-9.6.1/bin:$PATH
-./gradlew bootRun
+- Java 25
+- Docker and Docker Compose
+
+### Start the service
+
+```bash
+cp .env.example .env
+docker compose up -d postgres redis
+bash ./gradlew bootRun
 ```
 
-Server starts on `http://localhost:8080`.
+The API starts at `http://localhost:8080`. To run the full Compose stack,
+including this service, use `docker compose up --build`.
 
-Default OTP/notification mode logs codes to the console (`DevLogNotificationService`).
-Set `app.otp.store=redis` to use Redis, and implement `NotificationService` for
-real email/SMS delivery.
+## Configuration
+
+Copy `.env.example` before changing values. Production secrets belong in the
+deployment environment, never in Git.
+
+| Variable | Purpose |
+|---|---|
+| `JWT_SECRET` | Strong 32+ character signing secret |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL connection credentials |
+| `GOOGLE_CLIENT_ID` | Enables Google ID-token audience validation |
+| `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | Enables Facebook token verification |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed web origins |
 
 ## API overview
 
 Base path: `/api/v1/auth`
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/register` | Create account (requires email verification) |
-| POST | `/verify-email` | Verify email with 6-digit code |
-| POST | `/resend-verification` | Re-send verification code |
-| POST | `/login` | Email + password → `{accessToken, refreshToken, user}` |
-| POST | `/refresh` | Rotate refresh token → new token pair |
-| POST | `/logout` | Revoke current refresh token |
-| POST | `/logout-all` | Revoke all sessions for the user |
-| POST | `/forgot-password` | Send reset code |
-| POST | `/reset-password` | Set new password with code |
-| POST | `/change-password` | Authenticated password change |
-| POST | `/send-otp` | Send OTP to verified email |
-| POST | `/verify-otp` | Verify OTP |
-| POST | `/google` | `{idToken}` from Google → token pair (auto-registers) |
-| GET | `/users/me` | Current user + permissions |
+| Area | Endpoints |
+|---|---|
+| Registration | `POST /register`, `/verify-email`, `/resend-verification` |
+| Sessions | `POST /login`, `/refresh`, `/logout`, `/logout-all` |
+| Account recovery | `POST /forgot-password`, `/reset-password`, `/change-password` |
+| OTP | `POST /send-otp`, `/verify-otp` |
+| Social sign-in | `POST /google`, `/facebook` |
+| Current user | `GET /api/v1/users/me` |
 
-OIDC login UI: `http://localhost:8080/oauth2/authorization/web-client`
-(authorization-code flow with PKCE, supports 3rd-party apps).
+Protected routes receive `Authorization: Bearer <access-token>`. The OAuth
+authorization-code flow with PKCE is available through the configured Spring
+Authorization Server endpoints.
 
-Login response:
+## Database and migrations
 
-```json
-{
-  "accessToken": "eyJ...",
-  "tokenType": "Bearer",
-  "expiresIn": 3600,
-  "refreshToken": "eyJ...",
-  "user": { "id": "...", "email": "...", "emailVerified": true, "name": "..." }
-}
-```
+Flyway creates users, roles, permissions, refresh tokens, and login-session
+records. Migrations are versioned in `src/main/resources/db/migration`; add a
+new migration rather than editing one that has already been applied.
 
-Protected endpoints: `Authorization: Bearer <accessToken>`.
-
-## Configuration (`application.yml`)
-
-- `app.base-url` – base URL used in emails/links
-- `app.otp.store` – `inmemory` (default) or `redis`
-- `app.google.client-id` – Google OAuth client ID verified against token audience
-- `spring.datasource.*` / `spring.data.redis.*` – connection settings
-
-## Database
-
-Flyway migration `V1__init.sql` creates: `users`, `roles`, `permissions`,
-`user_roles`, `role_permissions`, `refresh_tokens`, `login_sessions` (with
-device fingerprinting) and seeds base roles.
-
-## Tests
+## Quality checks
 
 ```bash
-./gradlew build --no-daemon
+bash ./gradlew test --no-daemon
 ```
 
-`AuthFlowIntegrationTest` covers the full happy path: register → verify →
-login → `/users/me` → refresh rotation → change password.
+Integration tests cover registration, verification, login, authenticated user
+lookup, refresh-token rotation, password changes, and authorization rules.
+
+## Related repositories
+
+- `mohajon-mobile-app` — Flutter application for shop owners and staff
+- `mohajon-core-service` — business APIs for POS, inventory, and reporting
+- `mohajon-admin-portal` — Angular operations portal
