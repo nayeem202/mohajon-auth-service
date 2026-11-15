@@ -3,11 +3,13 @@ package com.authservice.service;
 import com.authservice.exception.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -29,19 +31,25 @@ public class FacebookTokenVerifier {
 
     private static final Logger log = LoggerFactory.getLogger(FacebookTokenVerifier.class);
     private static final String GRAPH = "https://graph.facebook.com/v21.0";
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final RestClient restClient;
     private final String appId;
     private final String appSecret;
     private final boolean disabled;
 
+    @Autowired
     public FacebookTokenVerifier(
             @Value("${app.facebook.app-id:}") String appId,
             @Value("${app.facebook.app-secret:}") String appSecret) {
         // Built here rather than injected: the verifier is the only HTTP client
         // this service needs, and not depending on an auto-configured
         // RestClient.Builder keeps it constructible in every slice test.
-        this.restClient = RestClient.builder().build();
+        this(appId, appSecret, RestClient.builder().build());
+    }
+
+    FacebookTokenVerifier(String appId, String appSecret, RestClient restClient) {
+        this.restClient = restClient;
         this.appId = appId;
         this.appSecret = appSecret;
         this.disabled = appId == null || appId.isBlank() || appSecret == null || appSecret.isBlank();
@@ -119,16 +127,21 @@ public class FacebookTokenVerifier {
 
     private JsonNode getJson(String label, String uri) {
         try {
-            JsonNode body = restClient.get().uri(uri).retrieve().body(JsonNode.class);
-            if (body == null) {
+            // Graph API may label JSON responses as text/javascript. Asking
+            // RestClient to convert directly to JsonNode rejects that media
+            // type, so read the body as text and parse JSON ourselves.
+            String responseBody = restClient.get().uri(uri).retrieve().body(String.class);
+            if (responseBody == null || responseBody.isBlank()) {
                 throw ApiException.unauthorized("INVALID_TOKEN",
                         "Facebook sign-in could not be verified. Please try again.");
             }
-            return body;
+            return JSON.readTree(responseBody);
         } catch (ApiException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("Facebook Graph call {} failed: {}", label, e.getMessage());
+            // Do not log exception messages: HTTP client errors can contain
+            // request URLs with the user token or app access token.
+            log.warn("Facebook Graph call {} failed ({})", label, e.getClass().getSimpleName());
             throw ApiException.unauthorized("INVALID_TOKEN",
                     "Facebook sign-in could not be verified. Please try again.");
         }

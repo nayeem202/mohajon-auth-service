@@ -8,6 +8,7 @@ import com.authservice.entity.RefreshToken;
 import com.authservice.entity.Role;
 import com.authservice.entity.User;
 import com.authservice.exception.ApiException;
+import com.authservice.exception.FailedLoginException;
 import com.authservice.repository.LoginSessionRepository;
 import com.authservice.repository.RefreshTokenRepository;
 import com.authservice.repository.RoleRepository;
@@ -159,7 +160,9 @@ public class AuthService {
         return new MessageResponse("A fresh verification code was sent to your email.");
     }
 
-    @Transactional
+    // Only a rejected password commits its failed-attempt counter. Other
+    // authentication failures retain normal transaction rollback semantics.
+    @Transactional(noRollbackFor = FailedLoginException.class)
     public TokenResponse login(LoginRequest request, String ipAddress) {
         String email = normalizeEmail(request.email());
         User user = findByEmail(email);
@@ -174,7 +177,7 @@ public class AuthService {
         }
         if (user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             registerLoginFailure(user);
-            throw ApiException.unauthorized("INVALID_CREDENTIALS", "The email or password is incorrect.");
+            throw new FailedLoginException();
         }
         if (!user.isEmailVerified()) {
             // Only send a fresh code when none is currently pending, so cooldown
@@ -448,6 +451,12 @@ public class AuthService {
     }
 
     private TokenResponse issueTokens(User user, String deviceId, String deviceName, String ipAddress, boolean isNew) {
+        // Shared by refresh, phone OTP, Google and Facebook as well as local
+        // login: disabling an account must block every credential issuer.
+        if (!user.isActive()) {
+            throw ApiException.forbidden("ACCOUNT_DISABLED",
+                    "This account is inactive. Contact your shop owner to reactivate it.");
+        }
         String accessToken = tokenService.issueAccessToken(user);
 
         String refreshValue = UUID.randomUUID().toString().replace("-", "");

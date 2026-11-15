@@ -73,8 +73,8 @@ app:
   google:
     client-id: ${GOOGLE_CLIENT_ID:273885941339-5eigr18p3tp5lt8h5ait4k2ae5oi6lbl.apps.googleusercontent.com}
 
-  # Facebook sign-in. Both values come from the Meta developer app
-  # (Settings > Basic). Left blank, the /facebook endpoint answers
+  # Facebook sign-in. Configure the App ID and App Secret from the same
+  # Meta app via server environment variables. Left blank, the /facebook endpoint answers
   # FACEBOOK_NOT_CONFIGURED rather than failing cryptically.
   facebook:
     app-id: ${FACEBOOK_APP_ID:}
